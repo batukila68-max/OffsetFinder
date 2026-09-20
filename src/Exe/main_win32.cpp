@@ -138,6 +138,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
                      ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse);
 
     // --- process attach bar ---
+    ImGui::SetNextItemWidth(180);
     ImGui::InputTextWithHint("filter", "process name...", procFilter,
                              sizeof(procFilter));
     ImGui::SameLine();
@@ -150,6 +151,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     std::string preview = selected >= 0 && selected < (int)procs.size()
         ? procs[selected].name + " (" + std::to_string(procs[selected].pid) + ")"
         : "<none>";
+    // leave room for attach button + status text on the same line
+    ImGui::SetNextItemWidth(std::max(120.f, ImGui::GetContentRegionAvail().x -
+                                              340.f));
     if (ImGui::BeginCombo("process", preview.c_str())) {
       for (int i = 0; i < (int)procs.size(); ++i) {
         if (procFilter[0] &&
