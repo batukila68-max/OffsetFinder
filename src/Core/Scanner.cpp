@@ -188,19 +188,22 @@ bool Scanner::FirstScan(const ScanValue &v, ScanType type, Progress progress) {
 
 bool Scanner::CompareNext(uint64_t cur, uint64_t prev, double curF, double prevF,
                           const ScanValue &v, NextFilter filter) const {
-  const bool flt = (v.type == ValueType::F32 || v.type == ValueType::F64);
+  // compare using the type locked in by FirstScan, not the current UI combo
+  const bool flt = (valueType == ValueType::F32 || valueType == ValueType::F64);
   switch (filter) {
   case NextFilter::Exact: {
+    ScanValue sv = v;
+    sv.type = valueType;
     std::vector<uint8_t> needle; uint64_t u = 0; double f = 0;
-    if (!ParseValue(v, needle, u, f)) return false;
+    if (!ParseValue(sv, needle, u, f)) return false;
     return flt ? curF == f : cur == u;
   }
   case NextFilter::Same:    return flt ? curF == prevF : cur == prev;
   case NextFilter::Changed: return flt ? curF != prevF : cur != prev;
   case NextFilter::Increased: {
     if (flt) return curF > prevF;
-    if (v.type == ValueType::I8 || v.type == ValueType::I16 ||
-        v.type == ValueType::I32 || v.type == ValueType::I64) {
+    if (valueType == ValueType::I8 || valueType == ValueType::I16 ||
+        valueType == ValueType::I32 || valueType == ValueType::I64) {
       switch (valueSize) {
       case 1: return (int8_t)cur > (int8_t)prev;
       case 2: return (int16_t)cur > (int16_t)prev;
@@ -212,8 +215,8 @@ bool Scanner::CompareNext(uint64_t cur, uint64_t prev, double curF, double prevF
   }
   case NextFilter::Decreased: {
     if (flt) return curF < prevF;
-    if (v.type == ValueType::I8 || v.type == ValueType::I16 ||
-        v.type == ValueType::I32 || v.type == ValueType::I64) {
+    if (valueType == ValueType::I8 || valueType == ValueType::I16 ||
+        valueType == ValueType::I32 || valueType == ValueType::I64) {
       switch (valueSize) {
       case 1: return (int8_t)cur < (int8_t)prev;
       case 2: return (int16_t)cur < (int16_t)prev;
@@ -244,8 +247,8 @@ bool Scanner::NextScan(const ScanValue &v, NextFilter filter, Progress progress)
     if (ok) {
       uint64_t cur = 0; double curF = 0;
       memcpy(&cur, buf, std::min(valueSize, (size_t)8));
-      if (v.type == ValueType::F32 || v.type == ValueType::F64)
-        curF = ReadFloat(buf, v.type);
+      if (valueType == ValueType::F32 || valueType == ValueType::F64)
+        curF = ReadFloat(buf, valueType);
       if (CompareNext(cur, prev, curF, prevF, v, filter)) {
         ScanHit nh = h; nh.u64 = cur; nh.f64 = curF; nh.valid = true;
         size_t idx = kept.size();
