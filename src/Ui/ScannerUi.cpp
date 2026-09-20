@@ -52,6 +52,16 @@ void ScannerUi::StopTask() {
   }
 }
 
+void ScannerUi::SetStatus(const std::string &s) {
+  std::lock_guard<std::mutex> l(statusMtx);
+  status = s;
+}
+
+std::string ScannerUi::GetStatus() {
+  std::lock_guard<std::mutex> l(statusMtx);
+  return status;
+}
+
 static void StatusLine(const std::string &s, double p, bool busy,
                        std::atomic<bool> &cancelFlag) {
   ImGui::TextUnformatted(s.c_str());
@@ -73,6 +83,14 @@ void ScannerUi::Draw(bool external) {
     regions = ListRegions(*reader);
     if (modules.empty()) modules = ListModules(*reader);
     regionsLoadedAt = now;
+  }
+  // commit results finished by the worker thread
+  if (!busy) {
+    std::lock_guard<std::mutex> l(sigMtx);
+    if (!sigHitsPending.empty()) {
+      sigHits = std::move(sigHitsPending);
+      sigHitsPending.clear();
+    }
   }
   if (ImGui::BeginTabBar("of_tabs")) {
     if (ImGui::BeginTabItem("Scanner")) {
@@ -97,7 +115,7 @@ void ScannerUi::Draw(bool external) {
     }
     ImGui::EndTabBar();
   }
-  StatusLine(status, progress, busy, cancel);
+  StatusLine(GetStatus(), progress, busy, cancel);
 }
 
 void ScannerUi::DrawScannerTab() {
@@ -117,21 +135,18 @@ void ScannerUi::DrawScannerTab() {
     ScanValue v{VT(valueTypeIdx), valueText, valueText2, valueHex};
     auto regs = regions;
     IReader *r = reader;
+    StopTask(); // join any running scan before destroying the old Scanner
     Scanner *sc = (scanner = std::make_unique<Scanner>(*r, regs)).get();
     StartTask([this, sc, v]() {
-      {
-        std::lock_guard<std::mutex> l(statusMtx);
-        status = "first scan running";
-      }
+      SetStatus("first scan running");
       int st = scanTypeIdx;
       sc->FirstScan(v, (ScanType)st, [this](double p) {
         progress = p;
         return !cancel.load();
       });
-      std::lock_guard<std::mutex> l(statusMtx);
       char b[96];
       std::snprintf(b, sizeof(b), "%zu hits", sc->HitCount());
-      status = b;
+      SetStatus(b);
     });
   }
   ImGui::SameLine();
@@ -143,23 +158,28 @@ void ScannerUi::DrawScannerTab() {
       ScanValue v{VT(valueTypeIdx), valueText, valueText2, valueHex};
       Scanner *sc = scanner.get();
       StartTask([this, sc, v]() {
+        SetStatus("next scan running");
         sc->NextScan(v, (NextFilter)nextFilterIdx, [this](double p) {
           progress = p;
           return !cancel.load();
         });
-        std::lock_guard<std::mutex> l(statusMtx);
         char b[96];
         std::snprintf(b, sizeof(b), "%zu hits", sc->HitCount());
-        status = b;
+        SetStatus(b);
       });
     }
     ImGui::SameLine();
-    if (ImGui::Button("reset")) scanner.reset();
+    if (ImGui::Button("reset") && !busy) scanner.reset();
   }
 
   if (!haveScanner) {
     ImGui::TextUnformatted(
         "Pick a type + value, run a first scan, then narrow with next scans.");
+    return;
+  }
+  // don't touch hits while the worker mutates them
+  if (busy) {
+    ImGui::ProgressBar((float)progress.load(), ImVec2(-1, 0));
     return;
   }
   if (now - lastValueRefresh > 0.5) {
@@ -258,14 +278,20 @@ void ScannerUi::DrawSignatureTab() {
             progress = p;
             return !cancel.load();
           });
-      sigHits = std::move(out);
-      std::lock_guard<std::mutex> l(statusMtx);
+      {
+        std::lock_guard<std::mutex> l(sigMtx);
+        sigHitsPending = std::move(out);
+      }
       char b[96];
-      std::snprintf(b, sizeof(b), "%zu sig hits", sigHits.size());
-      status = b;
+      std::snprintf(b, sizeof(b), "%zu sig hits", sigHitsPending.size());
+      SetStatus(b);
     });
   }
 
+  if (busy) {
+    ImGui::ProgressBar((float)progress.load(), ImVec2(-1, 0));
+    return;
+  }
   if (sigHits.empty()) return;
   ImGui::Separator();
   if (ImGui::BeginTable("sighits", 3,

@@ -38,6 +38,8 @@ private:
   void StartTask(std::function<void()> fn);
   void StopTask();
   void CollectRow(const char *name, Address addr);
+  void SetStatus(const std::string &s);
+  std::string GetStatus();
 
   IReader *reader = nullptr;
   double now = 0;
@@ -63,6 +65,8 @@ private:
   int instrSize = 7;
   bool autoResolve = true;
   std::vector<SigHit> sigHits;
+  std::vector<SigHit> sigHitsPending; // worker writes, UI commits when idle
+  std::mutex sigMtx;
 
   // pointer chain state
   char chainBase[256] = "";
