@@ -1,0 +1,7 @@
+Build/
+*.o
+*.obj
+*.exe
+*.dll
+*.user
+.vs/
